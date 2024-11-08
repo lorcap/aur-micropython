@@ -1,7 +1,7 @@
 # Maintainer: Aman Gupta <aman.iv0012@gmail.com>
 
 pkgname=(micropython)
-pkgver=1.22.0
+pkgver=1.24.0
 pkgrel=1
 pkgdesc="Python3 for microcontrollers, with stdlib. (UNIX version)"
 arch=('i686' 'x86_64')

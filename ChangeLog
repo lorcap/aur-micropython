@@ -1,0 +1,611 @@
+This release of MicroPython adds support for the new RP2350 MCU, improved RISC-V support with native code generation, support for ESP32-C6 MCUs, update Zephyr version with threading support, unified TinyUSB bindings across ports, a portable UART IRQ API, and enhanced mpremote recursive copy.  There are also numerous bug fixes, enhancements to the test suite and more attention to testing of the machine module and its API.  Read on for more details.
+
+Support for the RISC-V architecture has been significantly extended, to include an RV32IMC native code emitter, native NLR and GC register scanning implementations for 32- and 64-bit RISC-V, support for placing RV32IMC native code in .mpy files and also freezing it, and RISC-V semihosting support. Testing for RISC-V is done with the qemu and unix ports, and the support is utilised in the esp32 and rp2 ports.
+
+There is now support concatenation of adjacent f-strings, as well as raw f-strings.  There is also a new `micropython.RingIO` class which provides a stream interface to an efficient, thread-safe, byte-oriented ring-buffer implementation.
+
+All the ports that use TinyUSB have now been unified to use the same shared helper code for CDC serial.  This includes: esp32 (S2 and S3), mimxrt, renesas-ra, rp2 and samd ports.  With this has come the useful feature that the startup CDC serial data is buffered and then sent to the host upon connection.  This means that (among other things) the REPL banner and initial prompt is now seen on first connection to a board.
+
+Most ports now support registering Python callbacks for UART IRQs, and the semantics for the callback are made as consistent as possible across the ports.  The possible IRQs are IRQ_RX, IRQ_RXIDLE, IRQ_TXIDLE and IRQ_BREAK, and the ports that have added support for these are esp32, mimxrt, nrf, renesas-ra, rp2 and samd (stm32 already had this feature).
+
+In the networking sub-system, a new API for configuring IP addresses and related settings has been added: the global `network.ipconfig()` function, and a `nic.ipconfig()` method on individual network interfaces.  This new API supports both IPv4 and IPv6, with much more control compared to the original `nic.ifconfig()` method; the latter is still available for backwards compatibility, but `ipconfig()` is now preferred moving forward.
+
+A portable `network.PPP` implementation has been added, based on lwIP. This is not enabled by default but can be added to custom boards that use bare-metal lwIP.
+
+The `machine.SoftSPI` class now supports least-significant-bit (LSB) mode, as well as the existing MSB mode.
+
+The behaviour of `sys.exit()` and `raise SystemExit` (which are equivalent) has been changed: previously this would terminate the running script and drop to the REPL, but now it terminates the running script and triggers a soft reset of the device.  This is more consistent with the unix port, which exits completely on a `SystemExit` exception.  This change in behaviour is a breaking change and may impact certain applications; see commit 69c25ea8653566ec97690b5121bd10b753c89426 for details.
+
+The mpremote tool has a new hashing ability, eg `mpremote sha256sum <file>` and also has enhanced recursive copy which first checks the hash and only updates the destination file if the hash is different.  This makes copying a large directory to a device significantly faster, and enables a "sync" workflow, where small changes can be made to a large application and then quickly deployed to the device via the recursive copy.
+
+The esp32 port now supports ESP-IDF v5.2.2, and with this comes support for ESP32-C6 MCUs.  The RISC-V native emitter has been enabled on C3 and C6 MCUs.  There have also been some important bug fixes, for handling of native code loaded from .mpy files, fixes for stack corruption, and a fix to I2S, among other things.  Also, applications that use many TCP sockets in quick succession should see an improvement because there is now a hard limit on the number of active TCP sockets.
+
+The qemu port has been renamed from qemu-arm to simply qemu, and now supports both ARM and RISC-V architectures.  It has also been reworked to provide a REPL and to run tests via a pty serial port, emulating how tests are run on bare-metal targets.
+
+The rp2 port has updated pico-sdk to v2.0.0, which brings support to MicroPython for the new RP2350 MCU, in both ARM and RISC-V mode, and in both the 30- and 48-pin variants.  IPv6 has been enabled by default on this port, and optional `network.PPP` made available.  The USB now remains active during `machine.lightsleep()`, and there have been many bug fixes.
+
+The stm32 port also sees optional `network.PPP` support through lwIP, and support for octospi on STM32H7 MCUs.  A build option has been added to put IRQ, flash and UART code in RAM, and this feature is enabled on boards with a UART REPL, to allow filesystem access to work on these boards without losing UART characters (eg when using mpremote to copy files to a board). Preemptive keyboard interrupt via PendSV has been removed: this was buggy and no longer necessary; see ece950d9bed18554e945188c5a31908c8bfa9a7b for details.  The ARDUINO_PORTENTA_H7 and ARDUINO_NICLA_VISION boards have added support for the NXP SE05x secure element, with integration in mbedTLS.
+
+The webassembly port has better asyncio support, including the ability to do a top-level await of `Task` and `Event` objects.  There has also been enhancements to the proxying of objects between JavaScript and Python.
+
+The zephyr port has updated to use Zephyr v3.7.0, threading has been implemented through the `_thread` module, the REPL now operates in non-blocking mode so it can process events/callbacks, some more Python features including big-integers have been enabled, and machine objects (eg Pin, I2C) can now be constructed using device-tree node labels.
+
+New boards added in this release are: ESP32_GENERIC_C6, M5STACK_ATOMS3_LITE, M5STACK_NANOC6, OLIMEX_ESP32_EVB, UM_FEATHERS3NEO, UM_OMGS3, UM_RGBTOUCH_MINI and UM_TINYC6 (esp32 port), RPI_PICO2 (rp2 port), ARDUINO_OPTA (stm32 port).
+
+The change in code size since the previous release for various ports is (absolute and percentage change in the text section):
+
+       bare-arm:   +116  +0.203%
+    minimal x86:   +185  +0.100%
+       unix x64:  +8994  +1.098%
+          stm32:  +1028  +0.263%
+         cc3200:  +1152  +0.625%
+        esp8266:  +2968  +0.426%
+          esp32: -53617  -3.101%
+         mimxrt:  +1864  +0.513%
+     renesas-ra:  +1536  +0.245%
+            nrf:  +1460  +0.781%
+            rp2:  +3592  +1.068%
+           samd:  +2244  +0.845%
+
+The leading causes of these changes in code size are:
+- bare-arm, minimal: fix `int.to_bytes()` buffer size checks
+- unix: enable GCM and ECDHE-RSA in mbedTLS config
+- stm32: add new `RingIO` class
+- cc3200: add `network.ipconfig` and `WLAN.ipconfig`
+- esp8266: add `network.ipconfig`, `WLAN.ipconfig` and `RingIO` class
+- esp32: update ESP-IDF from v5.0.5 to v5.2.2
+- mimxrt, renesas-ra, nrf, rp2, samd: `RingIO` class and `UART.irq` support
+
+Performance is effectively unchanged since the previous release on all ports, except the unix port which sees some reduction in GC times due to no more root-pointer scanning of executable memory.
+
+Thanks to everyone who contributed to this release: Adrian Higgins, Alessandro Gatti, Alexandre Iooss, Amirreza Hamzavi, Andrea Milazzo, Andrew Leech, Angus Gratton, Ayush Singh, cajt, Christian Walther, Corran Webster, Damien George, Dan Halbert, danicampora, David Lechner, dmfaria, Dryw Wade, Elvis Pfützenreuter, Felix Dörre, George Hopkins, Glenn Moloney, iabdalkader, IhorNehrutsa, Jared Hancock, Jason Kridner, Jim Mussared, Jon Foster, Jos Verlinde, Junwha, Laurens Valk, Lennart, Leo Chung, Matt Trentini, Matthias Blankertz, Maureen Helm, Michael Sawyer, Michael Vornovitsky, nspsck, Owen, Paul Grayson, Peter Harper, Peter Züger, Phil Howard, Plaque FCC, Rick Sorensen, robert-hh, Seon Rozenblum, shiggy, stijn, Sylvain Zimmer, Takeo Takahashi, Terence Stenvold, tharuka, Tim Weber, timdechant, Volodymyr Shymanskyy, Yoctopuce, ZodiusInfuser.
+
+MicroPython is a global Open Source project, and contributions were made from the following timezones: -0700, -0600, -0500, -0400, -0300, +0000, +0100, +0200, +0300, +0330, +0530, +0800, +0900, +1000, +1100.
+
+The work done in this release was funded in part through GitHub Sponsors, and in part by George Robotics, Espressif, Anaconda, Arduino, LEGO Education, OpenMV and Planet Innovation.
+
+What follows is a detailed list of changes, generated from the git commit history, and organised into sections.
+
+Main components
+===============
+
+py core:
+- nlrrv32: add RISC-V RV32I NLR implementation
+- lexer: support concatenation of adjacent f-strings
+- lexer: support raw f-strings
+- objdeque: fix deque type flags based on option settings
+- asmrv32: add RISC-V RV32IMC native code emitter
+- emitnative: emit better load/store sequences for RISC-V RV32IMC
+- emitnative: add more DEBUG_printf statements
+- emitndebug: add native debug emitter
+- emitnative: place thrown value in dedicated local variable
+- emitnative: fix native async with
+- misc: move mp_clz and mp_ctz intrinsics into misc.h
+- objint: fix int.to_bytes() buffer size checks
+- objarray: fix buffer overflow in case of memory allocation failure
+- asmrv32: make some code sequences smaller
+- objint: try to convert big-int back to small-int after binary op
+- asmrv32: do not use binary literals
+- objstr: add new mp_obj_new_str_from_cstr() helper function
+- remove 5 TODOs in emitbc, objrange and repl
+- lexer: add static assert that token enum values all fit in a byte
+- sequence: remove unused len argument from mp_seq_extract_slice
+- gc: remove commented-out functions
+- objtype: avoid crash on calling members of uninitialized native type
+- objtype: validate super() arguments
+- misc: fix msvc and C++ compatibility
+- runtime: fix self arg passed to classmethod when accessed via super
+- py.mk: add SRC_USERMOD_LIB_ASM to include assembly files
+- emitnative: fix case of clobbered REG_TEMP0 when loading const obj
+- modmath: add option to work around -inf bug in a port's tgamma
+- obj: remove the legacy object API for version 2
+- add new cstack API for stack checking, with limit margin macro
+- objstr: skip whitespace in bytes.fromhex()
+- asmrv32: fix short/long jumps scheduling
+- asmrv32: emit C.LW opcodes only when necessary
+- asmrv32: use REG_TEMP2 whenever possible
+- mkrules.mk: fix 'make submodules' when building out-of-tree
+- objint: make byteorder argument optional in int.to_bytes() method
+- objint: make length argument optional in int.to_bytes() method
+- objint: make byteorder argument optional in int.from_bytes() method
+- scheduler: only run callbacks on the main thread if GIL is disabled
+- objringio: add micropython.RingIO() interface for general use
+- persistentcode: explicitly track native BSS/rodata when needed
+- mpz: skip separators when running out of digits to print
+- parse: remove old esp32 compiler workaround
+- nlrrv64: add RISC-V RV64I NLR implementation
+- objtype: allow passing keyword arguments to native base __init__
+- usermod.cmake: check target exists in usermod_gather_sources
+- objtype: don't delegate lookup of descriptor methods to __getattr__
+
+extmod:
+- network_ninaw10: implement the ipconfig methods for ninaw10
+- network_lwip: allow using the CIDR notation for addr4
+- modlwip: make socket.connect raise ETIMEDOUT on non-zero timeout
+- modlwip: consolidate socket.accept timeout logic
+- modplatform: add picolibc to the recognised libcs list
+- modasyncio: add support for a callback on TaskQueue push
+- extmod.mk: disable maybe-uninitialized warnings in libm_dbl
+- machine_usb_device: add USBDevice.remote_wakeup method
+- mbedtls: enable GCM and ECDHE-RSA in common mbedtls config
+- modmachine: allow more than one argument to machine.freq()
+- network_nina: fix the AP security mode constants
+- machine_spi: support firstbit=LSB for machine.SoftSPI
+- modre: rename re_exec to re_exec_helper to avoid clash on BSD
+- modmachine: use sys.exit as implementation of machine.soft_reset
+- modos: include os.sep entry if MICROPY_VFS is enabled
+- modbtree: add checks for already-closed database
+- moductypes: validate the descriptor tuple
+- vfs_fat: set default volume label on mkfs if it's defined
+- vfs: fix buffer overflow of string comparison in umount
+- libmetal: remove source file listed twice in sources
+- modopenamp_remoteproc: fix entry point address int overflow
+- modopenamp: add support for building Open-AMP on device side
+- modopenamp: fix Endpoint callback required arg
+- modopenamp: use mp_event_* functions for poll/wait
+- modtls_mbedtls: fix DER parsing and calculation of key/cert len
+- modtls_mbedtls: optimise the DER certificate parsing fix
+- network_wiznet5k: add support for IPv6
+- update make and cmake scripts to work with latest lwIP
+- network_ppp_lwip: add network.PPP via lwIP
+- modlwip: fix compile error for lwIP with SLIP support
+- libmetal: fix libmetal rules for mkdir dependencies
+- vfs_blockdev: check block device function positive results
+- vfs_blockdev: implement common helper for read and write
+- vfs_posix_file: skip flush of tty handles in msvc debug builds
+- modframebuf: fix FrameBuffer size check for stride corner-cases
+- network_wiznet5k: reset mDNS when interface is brought up
+- modtls_mbedtls: add a thread-global ptr for current SSL context
+- modtls_mbedtls: support alternate sign callbacks in Python
+
+shared:
+- tinyusb: add common CDC TX/RX functions
+- tinyusb: allow ports to use 1200bps-touch without other CDC code
+- tinyusb: buffer startup CDC data to send to host on connection
+- runtime/gchelper: add RISC-V RV32I native gchelper
+- runtime/semihosting: rename ARM semihosting files
+- runtime/semihosting: add RISC-V semihosting support
+- tinyusb/mp_usbd_runtime: fix pointer comparison in assert
+- tinyusb/mp_usbd_cdc: fix short CDC TX timeouts
+- tinyusb/mp_usbd_cdc: skip writing to an uninitialized USB device
+- runtime/pyexec: make a raised SystemExit always do a forced exit
+- runtime/gchelper: add RISC-V RV64I native gchelper
+- tinyusb: allow ports to define CDC TX/RX buffer sizes
+- runtime/semihosting_arm: support semihosting on non-Thumb ARM
+- runtime/semihosting_arm: add mp_semihosting_rx_chars
+- runtime/semihosting_arm: add mp_semihosting_exit
+- runtime/sys_stdio_mphal: fix printed type for stdio streams
+- tinyusb: only run TinyUSB on the main thread if GIL is disabled
+- tinyusb: use new persistent-tx-fifo configure interface
+- runtime/gchelper_rv64i: fix opcode sw/sd typo
+- tinyusb: remove MICROPY_HW_USB_EXTERNAL_TINYUSB
+- tinyusb: wake main task if needed at end of USB ISR
+- timeutils: document the range of year/month/day etc input values
+
+drivers: no changes specific to this component/port
+
+mpy-cross:
+- add RISC-V RV32IMC support in MPY files
+- main: use MICROPY_BANNER_NAME_AND_VERSION for --version
+
+lib:
+- remove tinytest component
+- libm: do not force floating point type size evaluation
+- tinyusb: update to the most recent master
+- libm: define _IEEE_LIBM only if not set
+- arduino-lib: update submodule to the latest
+- lwip: update lwIP to STABLE-2_2_0_RELEASE
+- libffi: update libffi to 3.4.6
+- tinyusb: update to version 0.17.0
+- pico-sdk: update to version 2.0.0
+- arduino-lib: update submodule
+- micropython-lib: update submodule to latest
+
+Support components
+==================
+
+docs:
+- rp2/quickref: document the use of channel numbers for ADC
+- update docs to replace ifconfig with ipconfig
+- specify that machine.idle() returns at least every 1ms
+- library/neopixel: mention bitstream timing tuple
+- mimxrt/quickref: add a note about machine.RTC() subseconds
+- library/machine.UART: fix UART.irq docs to match current code
+- library/machine.UART: extend the documentation for UART.irq
+- library: document the network.PPP class
+- esp32: update pin access example with addresses for ESP32-S3
+- reference: fix pyboard.py filesystem cp example with three files
+- library: document math.log with two arguments
+- library: document machine.Pin.toggle() method
+- zephyr: update docs to reflect device name changes
+- reference/mpremote: update docs to mention new features
+
+examples:
+- usercmodule/cexample: add more advanced native class
+- network: support IPv4 and IPv6 in HTTP client examples
+- network: use SSLContext instead of old ssl.wrap_socket
+- network: support full URLs in HTTP(S) client examples
+- natmod: fix URL links in README.md
+
+tests:
+- cpydiff: remove deque difference test
+- thread: re-enable GC before stress_schedule test ends
+- basics: add tests to test repeated throw into the same generator
+- thread/stress_aes.py: fix logic waiting for finished threads
+- stress/bytecode_limit.py: make test more robust with low memory
+- extmod: make get_event_loop tests compatible with CPython 3.12
+- multi_bluetooth/perf_gatt_notify.py: reduce connection interval
+- run-tests.py: enable thread tests on esp32
+- cpydiff: add diff for overriding __init__
+- run-tests.py: make Windows test skipping more granular
+- multi_net: fix skipping of SSLContext tests when .der don't exist
+- extmod: skip soft machine.Timer test on esp32 port
+- extmod: add esp32 support to the machine_i2s_rate test
+- extmod: rename machine_timer exp file to machine_soft_timer
+- extmod: add machine_spi_rate test
+- extmod/ssl_keycert.py: add test for PKCS8 formatted DER key
+- run-tests.py: enable stress tests on esp32 port
+- run-tests.py: skip additional tests when slice unavailable
+- extmod: add test for machine.UART.IRQ_TXIDLE
+- extmod_hardware: add tests for machine.UART.IRQ_RX/RXIDLE/BREAK
+- basics: add tests for optional args to int.to_bytes/from_bytes
+- net_inet: update micropython.org certificate for SSL tests
+- run-tests.py: automatically detect native arch and mpy-cross flag
+- extmod/machine_uart_irq_txidle.py: simplify the test script
+- thread: adapt stress_aes.py to run on zephyr
+- run-tests.py: add a zephyr test target
+- run-tests.py: remove --write-exp and --list-tests options
+- ports/unix: update and extend the modffi integer tests
+- README: update instructions for key/cert pair usage on device
+- tweak machine SPI and UART tests to work with esp32c6
+- run-tests.py: wait for soft reset if a target skips a test
+- ports/rp2: update DMA test to work on RP2350
+- ports/rp2: add simple rp2-specific UART test
+- ports/rp2: update lightsleep/machine_idle to skip on RP2350
+- run-tests.py: only run inlineasm tests on rp2 ARM targets
+- extmod: config SPI test for esp8266 and skip SoftTimer test
+- extmod: adjust ssl/tls tests to run on targets with axTLS
+- micropython: tweak ringio test for targets with terse errors
+- run-tests.py: skip large viper test on esp8266
+- extmod: make invalid-blockdev test work consistently on all ports
+- extmod: support esp32,mimxrt,stm32,samd ports in UART TX test
+- extmod: add a simple test for machine.RTC
+- extmod: fix access of RTC class in machine.RTC test
+- extmod: use time_ns instead of time in lfs mtime test
+- extmod: add test to compare time_ns with time
+- extmod: fix machine_spi_rate test on ESP32-C3
+
+tools:
+- metrics.py: change rp2 board selection to RPI_PICO_W
+- makemanifest.py: generate working code for empty manifests
+- mpremote: fix absolute path usage in remote mounted VFS
+- ci.sh: build an stm32 board with -O2 enabled
+- mpy-tool.py: implement freezing of long-long ints
+- mpremote: fix mpremote mip install with multiple lib in sys.path
+- pyboard.py: capture stdout for pts line
+- mpy-tool.py: support freezing rv32imc native code
+- mpy_ld.py: ignore R_XTENSA_ASM_EXPAND relocation entries
+- ci.sh: clean up the Unix port's MIPS target
+- ci.sh: add missing FFI helper for CI RV64 Unix builds
+- ci.sh: clean up the Unix port's Arm target
+- mpy_ld.py: support jumping more than 2k on armv6m architectures
+- ci.sh: let RV64 use a source-built version of libffi
+- metrics.py: add VIRT_RV32 to the code size metrics
+- ci.sh: report code size for `VIRT_RV32` as well
+- ci.sh: upgrade Zephyr docker image 0.26.13 and SDK 0.16.8
+- mpremote: make eval parse by default
+- mpremote: make filesystem commands use transport API
+- mpremote: add hashing ability and use for recursive copy
+- mpremote: improve error output
+- mpremote: add initial regression tests for mpremote
+- mpremote: add option to force copy
+- only issue a single Ctrl-C when entering raw REPL
+- ci.sh: add RPI_PICO2 to CI
+
+CI:
+- ISSUE_TEMPLATE: update issue form to remove checklist generation
+- add Pull Request template
+- workflows: use macos-latest for unix macos CI
+- workflows: improve MSYS2-based CI builds
+- workflows: add RISC-V 64 bits Unix port to CI
+- workflows: add CI to run tests against zephyr with qemu
+- workflows: update Ubuntu images for code size CI tasks
+- workflows: free up disk space on zephyr workflow
+
+The ports
+=========
+
+all ports:
+- fix lwIP config setting to disable DHCP ARP check
+- include py/mphal.h instead of mphalport.h
+
+bare-arm port: no changes specific to this component/port
+
+cc3200 port:
+- mods: implement network.ipconfig and network.WLAN.ipconfig
+- mods/pybuart: add the UART.IRQ_RX class constant
+
+embed port: no changes specific to this component/port
+
+esp8266 port:
+- network_wlan: implement network.ipconfig and WLAN.ipconfig
+- rework board variant support to require mpconfigvariant file
+- use new mp_obj_new_str_from_cstr() function
+
+esp32 port:
+- implement ipconfig() for more network interfaces
+- network_ppp: implement network.PPP.ipconfig method
+- rework board variant support to require mpconfigvariant file
+- use new mp_obj_new_str_from_cstr() function
+- mpthreadport: fix uneven GIL allocation between Python threads
+- machine_timer: limit timer numbers for ESP32C3
+- mpconfigport: enable the RV32 emitter for ESP32C3 targets
+- fix heap corruption triggered by bluetooth.active(0)
+- machine_i2s: ensure 2 DMA buffers and improve I2S error handling
+- enable workaround for math.gamma(-inf) result
+- main: store native code as linked list instead of list on GC heap
+- network_lan: make LAN.active(state) succeed if already in state
+- network_lan: ensure LAN MAC address is valid at LAN init
+- fix thread stack limit margin, change to new cstack API
+- adc: add support for v5.2.1 calibration api
+- boards: reduce IRAM usage
+- adc: use new ADC calibration API in all cases
+- boards: build using newlib nano formatting functions
+- tools: add metrics_esp32 size comparison script
+- add support for ESP-IDF v5.2.2
+- use the ESP-IDF default esp_console config for ESP32-C3
+- restore ESP32-C3 brownout detector settings to IDF defaults
+- boards: remove BLE from list of features for ESP32-S2
+- mphalport: print debug strings even before the GIL is ready
+- fix Python cstack size for bluetooth irq callbacks
+- remove the increased stack limit margin for ESP32-C3
+- boards/M5STACK_ATOMS3_LITE: add M5Stack AtomS3 Lite board
+- boards/LILYGO_TTGO_LORA32: add OLED rst seq for board v1.0
+- boards: remove all IDF3 variants
+- machine_uart: implement Python UART IRQ with IRQ_RX and IRQ_BREAK
+- machine_uart: implement UART.RX_IDLE based on machine.Timer
+- fix ESP32-C3 USB serial/jtag peripheral pre-IDF 5.1
+- add MICROPY_HW_USB_CDC macro for native USB-CDC serial
+- fix ARDUINO_NANO_ESP32 build configuration
+- disable hardware stack protection on ESP32-C3
+- boards/UM_FEATHERS3NEO: add FeatherS3 Neo board definition
+- boards: add UM_OMGS3 and UM_RGBTOUCH_MINI board definitions
+- boards/OLIMEX_ESP32_EVB: add Olimex ESP32 EVB board definition
+- boards/UM_RGBTOUCH_MINI: fix compile error with missing modules
+- use shared/tinyusb integration for S2 and S3 USB
+- add automatic bootloader handling for S2 and S3
+- Makefile: allow auto-port selection if not passed on cmdline
+- boards: update ARDUINO_NANO_ESP32 USB configuration
+- add support for esp32c6
+- machine_adc: make ADC 2 optional
+- machine_timer: generalise timer clock configuration
+- modesp32: make gpio_deep_sleep_hold optional
+- machine_uart: add support for LP_UART
+- adc: set ADC to 12bit by default on esp32c6
+- Makefile: only set port & baud for jobs that access hardware
+- boards/ESP32_GENERIC_C6: add new generic esp32c6 board
+- boards/M5STACK_NANOC6: add new M5Stack C6 board definition
+- boards/UM_TINYC6: add new UM C6 board definition
+- sdkconfig: disable PMP_IDRAM_SPLIT to fix native emit support
+- fix hang in taskYIELD() on riscv CPUs when IRQs disabled
+- apply the LWIP active TCP socket limit
+- disable hardware stack protection on ESP32-C6
+- mphalport: always poll stdin ring-buffer to include UART use
+- modmachine: allow building with USB CDC disabled
+
+mimxrt port:
+- mphalport: refactor to use shared TinyUSB CDC functions
+- implement ipconfig() for more network interfaces
+- mpmetalport: use mp_event_handle_nowait() for metal_poll
+- mimxrt_sdram: fix pin config and comments
+- machine_pin: clear IRQ flag when enabling or disabling IRQ
+- machine_uart: implement a Python UART IRQ handler
+
+minimal port: no changes specific to this component/port
+
+nrf port:
+- consolidate all stdio functions
+- modules/machine/uart: support sending data stored in flash
+- Makefile: enable LTO by default only on newer gcc
+- modules/machine/soft_pwm: ensure duty_width is always valid
+- modules/machine/pin: disable IRQ with pin.irq(handler=None)
+- Makefile: fix GCC_VERSION check
+- modules/machine/uart: allow changing the UART baud rate w/o reset
+- modules/machine/uart: implement Python UART IRQ for nrf52840 boards
+
+pic16bit port: no changes specific to this component/port
+
+powerpc port: no changes specific to this component/port
+
+qemu port:
+- add license and copyright to files missing them
+- clean up header file includes
+- fix tinytest test profile when updating set of dirs/files
+- Makefile: make the build directory reflect the board
+- uart: implement uart_rx_chr
+- rework to provide a REPL and run tests via a pty serial port
+- factor board config to mk fragments
+- Makefile: clean up SRC and OBJ variables
+- merge RISC-V 32-bit support into qemu-arm port
+- enable RISC-V native code generation by default
+- rename qemu-arm port to qemu
+- mcu/rv32: fix test of mcause value in lookup_cause
+
+renesas-ra port:
+- mphalport: refactor to use shared TinyUSB CDC functions
+- machine_uart: add the UART.IRQ_RX class constant
+- machine_uart: implement UART.IRQ_RXIDLE based on softtimer
+- README: add basic details about board autogen files
+- boards: add configuration.xml for auto-generated files
+- extint: fix issue with Pin.irq not triggering
+- usb: use interrupt rather than polling for USB task
+- pendsv: remove preemptive keyboard interrupt via PendSV
+
+rp2 port:
+- refactor soft timer to use hardware timer alarm
+- refactor to not use pico-sdk alarm pool functions for sleeping
+- support calling pendsv_suspend/resume from core 1
+- mphalport: refactor to use shared TinyUSB CDC functions
+- modmachine: use atomic section macros in lightsleep code
+- modmachine: selectively leave the USB clocks enabled in lightsleep
+- CMakeLists: use MICROPY_BOARD_DIR to find pins.csv
+- cyw43_configport: make cyw43_delay_ms() a busy loop
+- fix recursive atomic sections when core1 is active
+- clocks_extra: implement custom clocks_init function
+- fix USB PLL glitch during wake from light sleep
+- don't disable USB if going to DORMANT mode
+- pendsv: fix variable typo in assert so it compiles
+- rework board variant support to require mpconfigvariant file
+- boards/WEACTSTUDIO: fix variant names in board.json
+- replace CMSIS funcs with Pico SDK equivalents
+- mbedtls: remove config options that are now in the common settings
+- rp2_pio: replace PIO_NUM macro with pio_get_index
+- rp2_pio: replace explicit pio ternary expression with pio_get_index
+- machine_adc: initialise ADC GPIO when a Pin is referenced by int
+- fix power consumption when sleeping with a timeout
+- fix wakeup from WFE on core1
+- rp2_pio: disable correct IRQ for PIO1
+- stop machine.idle() blocking indefinitely
+- lwip_inc: enable IPv6 per default on rp2 port
+- CMakeLists.txt: add MICROPY_DEF_BOARD to compile definitions
+- boards/PIMORONI_PICOLIPO: refactor Pico LiPo to use board variants
+- boards/PIMORONI_TINY2040: add an 8MB variant to Tiny 2040
+- memmap_mp.ld: lower the minimum GC heap to 32K
+- rp2_pio: make PIO IRQ handlers have lazy initialisation
+- machine_i2s: deinit all active I2S instances on soft reset
+- switch to use new cstack API for stack limit checks
+- mphalport: skip core1_entry if thread disabled
+- main: set the default clock frequency at boot
+- modmachine: set the peripheral frequency with machine.freq()
+- machine_uart: implement a Python UART IRQ handler
+- integrate optional network.PPP
+- add board-level hooks to main, and MICROPY_SOURCE_BOARD cmake var
+- increase ext pins from 10 to 32
+- machine_pin_cyw43: include check for CYW43_GPIO
+- modules: fix FatFS boot script to detect invalid FAT filesystem
+- machine_uart: fix dropped UART REPL bytes on soft reset
+- cyw43_configport: define CYW43_PRINTF to mp_printf to get messages
+- mpconfigport: set MCU name for RP2350
+- update custom linker scripts for new pico-sdk
+- modmachine: implement lightsleep for RP2350
+- rp2_dma: generalise DMA for RP2350
+- integrate RP2350 and use aon_timer instead of rtc API
+- add support for 48-pin RP2350 variant
+- machine_pin: move decl of machine_pin_obj_table to public header
+- rp2_pio: add support for RP2350A/B variants in PIO interface
+- boards/make-pins.py: pass num-gpios/num-ext-gpios into make-pins
+- machine_pin: use 64-bit gpio functions to allow gpios >=32 to work
+- machine_pin: generalise gpio_irq handler for pins >32
+- clocks_extra: update runtime_clocks_init based on new pico-sdk
+- machine_adc: add ADC support for RP2350B
+- add support for RP2350 in RISCV mode
+- Makefile: allow CMAKE_ARGS to be set by user
+- machine_bitstream: set SysTick reset value
+- machine_uart: allow new TX/RX pins on RP2350
+- mphalport: implement mp_hal_ticks_cpu for RISCV using mcycle
+- machine_bitstream: implement bitstream for RISC-V using mcycle
+- workaround pico_aon_timer timezone binary size increase
+- machine_pwm: add RP2350 slices to machine.PWM
+- main: set CPU frequency to default for the MCU
+- boards/RPI_PICO2: add new RPI_PICO2 board definition
+- machine_uart: clear timeout_char when UART is first constructed
+- machine_uart: make it so TX is done only when no longer busy
+- mpconfigport: leave callable pointers alone on RV32
+- datetime_patch: fix year and month offset for mktime wrapper
+- modmachine: re-sync time_ns offset when coming out of lightsleep
+
+samd port:
+- mphalport: refactor to use shared TinyUSB CDC functions
+- boards/ADAFRUIT_METRO_M4_EXPRESS: remove wlan variant
+- mcu/samd21: allow user to enable additional options
+- machine_uart: implement a Python UART IRQ handler
+- machine_uart: implement UART.IRQ_RXIDLE based on the softtimer
+- mphalport: fix an execution order bug in mp_hal_ticks_us_64()
+- mphalport: simplify mp_hal_delay_ms()
+- Makefile: specify UF2 family in firmware.uf2
+
+stm32 port:
+- implement ipconfig() for more network interfaces
+- pin: decrease machine_pin_obj_t.pin width from 5 to 4 bits
+- rework board variant support to require mpconfigvariant file
+- boards: swap FMC banks on ARDUINO_GIGA and ARDUINO_PORTENTA_H7
+- mpu: define the last used MPU region number
+- mpmetalport: use mp_event_handle_nowait() for metal_poll
+- boards: add missing images and update product URLs
+- stm32_it: enable PVD_PVM_IRQHandler for WB and WL MCUs
+- rfcore: allow HSE to be a wakeup source for BLE for the WB55
+- octospi: add OSPI support for STM32H7 MCUs
+- system_stm32: allow selection of OSPI clock source
+- boards/STM32H7B3I_DK: fix octo-spi pin configuration
+- machine_uart: add the UART.IRQ_RX event for UART.irq()
+- integrate optional network.PPP
+- machine_uart: allow changing only the baudrate
+- machine_uart: return number of bytes written even with timeout
+- uart: use timeout_char even with CTS enabled
+- lwip_inc: implement LWIP_PLATFORM_DIAG macro in terms of printf
+- add option to put ISR, flash and UART code in RAM
+- boards: enable RAM_ISR feature on boards with UART REPL
+- update STM32L452xx Multi OTG handling
+- boards/STM32F429DISC: add DAC support to the STM32F429DISC
+- uart: add UART RX/CTS pin pull config options
+- powerctrl: add pre/post stop mode entry macros
+- boards/ARDUINO_OPTA: add support for the Arduino Opta board
+- boards/ARDUINO_PORTENTA_H7: update board config files
+- boards/ARDUINO_NICLA_VISION: update board config files
+- boards/ARDUINO_GIGA: update board config files
+- pendsv: remove preemptive keyboard interrupt via PendSV
+- Revert "stm32: - machine_uart: allow changing only the baudrate."
+- boards/ARDUINO_PORTENTA_H7: add SE05x driver
+- boards/ARDUINO_NICLA_VISION: add SE05x driver
+- boards/ARDUINO_OPTA: add Opta expansion module
+
+unix port:
+- modtermios: add more baudrate options
+- mpbthciport: remove thread detached attribute
+- mpbtstackport_usb: remove thread detached attribute
+- main: fix GCC builds for RISC-V 64 bits
+- switch stack limit check to new cstack API
+- coveragecpp: include all API headers in the C++ code
+- expand the build steps in the README
+- add a description of COPT in the README
+- README: fix typo in build dependencies
+- modffi: fix signed integer cast in return_ffi_value
+- modffi: clean up FFI closures memory management
+- modffi: restrict uint32_t values to 32 bits
+- alloc: don't trace executable memory for GC pointers
+- alloc: remove unused MICROPY_FORCE_PLAT_ALLOC_EXEC option
+- main: add --version command-line option
+
+webassembly port:
+- objjsproxy: implement proxying of JS iterable protocol
+- asyncio: support top-level await of asyncio Task and Event
+- asyncio: schedule run loop when tasks are pushed to queue
+- api: allow specifying the pystack size
+- objjsproxy: lookup attributes without testing they exist
+- reuse PyProxy objects when they are the same Python object
+
+windows port: no changes specific to this component/port
+
+zephyr port:
+- modzsensor: add additional sensor type constants
+- modsocket: add socket.recvfrom method
+- link MicroPython with the Zephyr kernel library
+- remove obsolete tinytest test framework
+- increase CONFIG_CONSOLE_GETCHAR_BUFSIZE to 258
+- add threading support
+- re-implement the Zephyr console in non-blocking mode
+- enable some core features to get more thread tests passing
+- main: collect registers during a MicroPython GC scan
+- mpconfigport: enable mpz big integers
+- Kconfig: increase default GC heap size to 48k
+- src: remove k_yield() at the end of console_irq_input_hook()
+- mphalport: make mp_hal_wait_sem() always call k_poll()
+- update include paths to use the zephyr namespace
+- replace zephyr.h with kernel.h
+- replace deprecated FLASH_AREA macros with FIXED_PARTITION
+- change main function to return an int
+- change SPI chip select from a pointer to a struct member
+- upgrade to Zephyr v3.7.0
+- refactor device lookup into a common helper function
+- allow using devicetree node labels to construct machine objects
+- boards: add support for BeagleConnect Freedom

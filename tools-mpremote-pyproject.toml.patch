@@ -1,0 +1,26 @@
+diff --unified --recursive --text a/tools/mpremote/pyproject.toml b/tools/mpremote/pyproject.toml
+--- a/tools/mpremote/pyproject.toml	2024-11-11 09:00:24.766109286 +0100
++++ b/tools/mpremote/pyproject.toml	2024-11-11 09:02:57.033774666 +0100
+@@ -2,12 +2,12 @@
+ requires = [
+     "hatchling",
+     "hatch-requirements-txt",
+-    "hatch-vcs",
+ ]
+ build-backend = "hatchling.build"
+ 
+ [project]
+ name = "mpremote"
++version = "${pkgver}"
+ description = "Tool for interacting remotely with MicroPython devices"
+ readme = "README.md"
+ authors = [
+@@ -28,7 +28,7 @@
+     "Topic :: System :: Hardware",
+ ]
+ requires-python = ">=3.4"
+-dynamic = ["dependencies", "version"]
++dynamic = ["dependencies"]
+ 
+ [project.scripts]
+ mpremote = "mpremote.main:main"

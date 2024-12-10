@@ -81,17 +81,17 @@ pkgname=(                                      # DEPENDENCIES
   # 'micropython-port-renesas-ra'              # arm-none-eabi-gcc
   # 'micropython-port-renesas-vk'              # arm-none-eabi-gcc
 
-  # 'micropython-port-rp2-adafruit'            # picotool cmake
-  # 'micropython-port-rp2-arduino'             # picotool cmake
-  # 'micropython-port-rp2-garatronic'          # picotool cmake
-  # 'micropython-port-rp2-nullbits'            # picotool cmake
-  # 'micropython-port-rp2-pimoroni'            # picotool cmake
-  # 'micropython-port-rp2-pololu'              # picotool cmake
-  # 'micropython-port-rp2-rpi'                 # picotool cmake
-  # 'micropython-port-rp2-sil'                 # picotool cmake
-  # 'micropython-port-rp2-sparkfun'            # picotool cmake
-  # 'micropython-port-rp2-w5xxx'               # picotool cmake
-  # 'micropython-port-rp2-weact'               # picotool cmake
+  # 'micropython-port-rp2-adafruit'            # pico-sdk cmake
+  # 'micropython-port-rp2-arduino'             # pico-sdk cmake
+  # 'micropython-port-rp2-garatronic'          # pico-sdk cmake
+  # 'micropython-port-rp2-nullbits'            # pico-sdk cmake
+  # 'micropython-port-rp2-pimoroni'            # pico-sdk cmake
+  # 'micropython-port-rp2-pololu'              # pico-sdk cmake
+  # 'micropython-port-rp2-rpi'                 # pico-sdk cmake
+  # 'micropython-port-rp2-sil'                 # pico-sdk cmake
+  # 'micropython-port-rp2-sparkfun'            # pico-sdk cmake
+  # 'micropython-port-rp2-w5xxx'               # pico-sdk cmake
+  # 'micropython-port-rp2-weact'               # pico-sdk cmake
 
   # 'micropython-port-samd-adafruitfeather'    # arm-none-eabi-gcc
   # 'micropython-port-samd-adafruittsybitsy'   # arm-none-eabi-gcc
@@ -160,7 +160,7 @@ makedepends=(
   # 'wget'
 
   # rp2 boards
-  # 'cmake' 'picotool'
+  # 'cmake' 'pico-sdk'
 
   # other boards
   # 'riscv64-unknown-elf-gcc'
@@ -1045,7 +1045,7 @@ port-renesas() {
 }
 
 port-rp2() {
-  # needs CMake, picotool
+  # needs CMake, pico-sdk
   cd $pkgbase-$pkgver/ports/rp2
   local cmd=$1
   if [[ $cmd = prepare ]]; then
